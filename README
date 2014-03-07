@@ -1,0 +1,115 @@
+PMssIngestor
+===============
+
+This code uses the DBIngestor library (https://github.com/adrpar/DBIngestor) to ingest 
+particle data from PMss files into a database.
+
+Hence it is very specific and probably only useful for a handful of people. 
+But it can serve as an example for how to use the DBIngestor library and write 
+your own binary reader.
+The code is based on the HelloWord program delivered with the DBIngestor.
+
+For any questions, please contact me at
+Kristin Riebe, kriebe@aip.de
+
+
+Data files
+-----------
+The PMss files were created from multiple Gadget files 
+by Anatoly Klypin. I haven't checked yet if there are other 
+types of PMss files with different formats.
+
+The files were written with Fortran, option "unformatted", 
+so each record is wrapped by a leading and trailing (4 byte) integer.
+
+Each file The data files are structured as follows:
+
+* header:
+skipint
+6 floats: aexpn, Om0, Oml0, hubble, Box, MassOne
+skipint
+skipint
+4 ints, 1 float, 1 int: i_node,Nx,Ny,Nz,dBuffer,nBuffer
+skipint
+skipint
+6 floats: xL,xR,yL,yR,zL,zR
+skipint
+skipint
+1 int: Np
+skipint
+
+* data blocks:
+There are blocks of "nrecord" size, each block is preceded by 
+nrecord and integers around it, i.e.:
+
+skipint
+nrecord
+skipint
+skipint
+datablock: nrecord rows with: 6 floats: x,y,z,vx,vy,vz; 1 long: id
+skipint
+
+The skipint-integers define the size of the next/previous record.
+
+Each file contains a subbox of the cosmological simulation, with an overlap 
+of dBuffer Mpc/h in each direction. These boundaries are xL, xR etc. as 
+given in the header. 
+The Pmss_Reader calculates the "true" boundary of the subbox, i.e. without 
+the overlap, based on the file number. This mapping between a subbox and
+its location in the cosmological box is taken from Anatoly Klypin's read-routine
+for these files. 
+
+The Pmss_Reader class checks for each read particle if it is inside the "true"
+boundary. If not, this particle is skipped and the next row is read.
+
+If particles lie *exactly* at the boundary between subboxes, they are included 
+in each adjacent box. Thus one needs to check the table afterwards for duplicate values.
+
+
+Features
+----------
+* Read given datafile and ingest following data into a database table:
+particleId: id of a particles, read from file
+x, y, z: coordinates of the particles, as written from file, in file units (probably Mpc/h)
+vx,vy,vz: velocity components of the particle, in file units (probably km/s)
+phkey: Peano-Hilbert key for the grid cell in which the particle is located, 
+		is just filled with NULLs, values can be updated via the database server using e.g.
+		libhilbert (https://github.com/adrpar/libhilbert)
+
+* Only particles from the main region are uploaded (not from overlapping boundary) 
+to minimize duplicates and upload time
+
+* If swap=1 is given, values will be byteswapped
+
+
+Installation
+--------------
+see INSTALL
+
+
+Example
+--------
+PmssIngest/build/PmssIngest.x -s mssql -D TestDB -T Particles -U myusername -P mypassword -O 3306 -R 1 -d PMss/PMss.snap_088.0001.DAT
+
+Replace myusername and mypassword with your own credentials. 
+-s: type of database (e.g. mysql, unix_sqlsrv_odbc)
+-D: database name
+-T: table name
+-O: port
+-R 1: try to resume, if connection fails
+-d: data file 
+
+
+The database table could have been created like this:
+
+
+
+
+TODO
+-----
+- tidy up (printouts are still a bit messy), read header all at once
+- implement a check, if "true" boundary is dBuffer smaller than boundary 
+given in header. 
+- offsetting file by certain number of rows currently not working
+
+
