@@ -31,6 +31,43 @@ using namespace DBReader;
 using namespace DBDataSchema;
 using namespace std;
 
+
+// structure for header
+typedef struct {
+    int ilead1;
+    float aexpn;    // expansion factor of universe
+    float Omega0;   // density parameter for matter at z=0
+    float OmegaL0;  // density parameter for dark energy at z=0
+    float hubble;   // Hubble constant at z=0 (h)
+    float box;      // side length of cosmological box
+    float particleMass;     // mass of one particle
+    int itrail1;
+
+    int ilead2;
+    int nodeNum;        // number of node/file/subbox
+    int nx;         // number of subboxes in x direction
+    int ny;         // number of subboxes in y direction
+    int nz;         // number of subboxes in z direction
+    float dBuffer;  // overlap at boundary in Mpc/h 
+    int nBuffer;    
+    int itrail2;
+
+    int ilead3;
+    float xL;       // left border in x-direction in file
+    float xR;       // right border in x-direction in file
+    float yL;
+    float yR;
+    float zL;
+    float zR;
+    int itrail3;
+
+    int ilead4;
+    int np;         // total number of particles in this file
+    int itrail4;
+
+} pmssHeader;
+
+
 namespace Pmss {
     
     class PmssReader : public Reader {
@@ -58,6 +95,8 @@ namespace Pmss {
         int numBytesPerRow;	
 
         // items from file
+        pmssHeader header;
+
         float x;
         float y;
         float z;
@@ -72,7 +111,7 @@ namespace Pmss {
         long int particleId;
         int phkey;
         int nrecord;
-        float Box;
+        float box;
 
         float xLeft, xRight, yLeft, yRight, zLeft, zRight;
         int fileNum, nx,ny,nz;
@@ -93,7 +132,7 @@ namespace Pmss {
 
         void closeFile();
 
-        void readHeader();
+        void readPmssHeader();
 
         void setBoundary();
         
@@ -104,6 +143,9 @@ namespace Pmss {
         int assignInt(int *n, char *memblock, int bswap);
         int assignLong(long int *n, char *memblock, int bswap);
         int assignFloat(float *n, char *memblock, int bswap);   
+        int swapInt(int i, int swap);
+        float swapFloat(float f, int swap);
+        pmssHeader swapPmssHeader(pmssHeader header, int bswap);
         
         bool getItemInRow(DBDataSchema::DataObjDesc * thisItem, bool applyAsserters, bool applyConverters, void* result);
 

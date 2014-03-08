@@ -42,13 +42,13 @@ namespace Pmss {
         maxRows = newMaxRows;
         
         currRow = 0;
-        counter = 0; // count number of particles
-        countInBlock = 0; // counting particles in each data block
+        counter = 0; // counts all particles
+        countInBlock = 0; // counts particles in each data block
         
         numBytesPerRow = 6*sizeof(float)+1*sizeof(long);
        
         openFile(newFileName);
-        readHeader();
+        readPmssHeader();
         setBoundary();
         //offsetFileStream();
         //exit(0);
@@ -78,110 +78,40 @@ namespace Pmss {
             fileStream.close();
     }
 
-    void PmssReader::readHeader() {
 
-        char memchunk[100];
-        int skipsize, iskip, datasize;
-        float aexpn, mass, Om0;
-        float xL,xR, yL, yR, zL, zR;
-        int np, nrecord;
-        streamoff ipos;
-
-        printf("Read header ...\n");
-        // TODO: read it first completely, then slice into 
-        // individual pieces?
-
-        skipsize = 4;
-        fileStream.read(memchunk,skipsize);
-        datasize = 4;
-        fileStream.read(memchunk,datasize);
-        assignFloat(&aexpn, &memchunk[0], bswap);
-        printf("aexpn: %f\n", aexpn);
-
-        fileStream.read(memchunk,datasize);
-        assignFloat(&Om0, &memchunk[0], bswap);
-        printf("Om0: %f\n", Om0);
-        fileStream.read(memchunk,datasize);//Oml
-        fileStream.read(memchunk,datasize);//Hubble
-        fileStream.read(memchunk,datasize);//Box
-        assignFloat(&Box, &memchunk[0], bswap);
-        printf("Box: %f\n", Box);
-        fileStream.read(memchunk,datasize);//mass
-        assignFloat(&mass, &memchunk[0], bswap);
-        printf("Mass: %f\n", mass);
-
-        fileStream.read(memchunk,skipsize);
-        fileStream.read(memchunk,skipsize);
-
-        datasize=4;
-        fileStream.read(memchunk,datasize); //i_node
-        assignInt(&fileNum, &memchunk[0], bswap);
-        fileStream.read(memchunk,datasize); // nx
-        assignInt(&nx, &memchunk[0], bswap);
-        fileStream.read(memchunk,datasize); // ny
-        assignInt(&ny, &memchunk[0], bswap);
-        fileStream.read(memchunk,datasize); // nz
-        assignInt(&nz, &memchunk[0], bswap);        
-        fileStream.read(memchunk,datasize); // dBuffer
-        fileStream.read(memchunk,datasize); // nBuffer
-       
-        printf("fileNum, nx, ny, nz: %d %d %d %d\n", fileNum, nx, ny, nz);
-
-        fileStream.read(memchunk,skipsize);
-        fileStream.read(memchunk,skipsize);
-
-        datasize=4;
-        fileStream.read(memchunk,datasize); // xL
-        assignFloat(&xL, &memchunk[0], bswap);
-        fileStream.read(memchunk,datasize); // xR
-        assignFloat(&xR, &memchunk[0], bswap);
-        fileStream.read(memchunk,datasize); // yL
-        assignFloat(&yL, &memchunk[0], bswap);
-        fileStream.read(memchunk,datasize); // yR
-        assignFloat(&yR, &memchunk[0], bswap);
-        fileStream.read(memchunk,datasize); // zL
-        assignFloat(&zL, &memchunk[0], bswap);
-        fileStream.read(memchunk,datasize); // zR
-        assignFloat(&zR, &memchunk[0], bswap);
-
-        printf("range: xL,xR,yL,yR,zL,zR: %.2f %.2f %.2f %.2f %.2f %.2f\n", xL,xR,yL,yR,zL,zR);
-
-        fileStream.read(memchunk,skipsize);
-        fileStream.read(memchunk,skipsize);
-
-        fileStream.read(memchunk,datasize); // np
-        assignInt(&np, &memchunk[0], bswap);
-       
-        fileStream.read(memchunk,skipsize);
-        fileStream.read(memchunk,skipsize);
-
-        fileStream.read(memchunk,datasize); // nrecord
-        assignInt(&nrecord, &memchunk[0], bswap);
-
-        printf("np, nrecord: %d %d\n", np, nrecord);
-
-        fileStream.read(memchunk,skipsize);
+    /* Read header into one global structure at once, byteswap (if needed) */
+    void PmssReader::readPmssHeader() {
         
-        // now the "real data" would follow after another beginning skip
+        assert(fileStream.is_open());
+        
+        fileStream.read(reinterpret_cast<char *>(&header), sizeof(header));
+        
+        // byteswap header (if needed)
+        header = swapPmssHeader(header, bswap);
 
-        // go back before nrecord
-        // so that in getNextRow I can start with nrecord properly
-       
-        ipos = (streamoff) ( (long) sizeof(nrecord)+2*sizeof(skipsize) );
-        fileStream.seekg(-ipos, ios::cur);
+        printf("aexpn, Omega0, OmegaL0, hubble, box, particleMass: %f %f %f %f %f %f\n", 
+            header.aexpn, header.Omega0, header.OmegaL0, header.hubble, header.box, header.particleMass);
+        printf("nodeNum,nx,ny,nz,dBuffer,nBuffer: %d %d %d %d %f %d\n", 
+            header.nodeNum,header.nx,header.ny,header.nz,header.dBuffer,header.nBuffer);
+        printf("xL,xR,yL,yR,zL,zR: %f %f %f %f %f %f\n", header.xL,header.xR,header.yL,header.yR,header.zL,header.zR);
+        printf("Np: %d\n", header.np);
 
-        //if (!fileStream.read(memchunk,numBytesPerRow)) {
-        //    return 0;
-        //}
-
-        printf("Header done.\n");
+        // set some important variables which we'll still need later on
+        box = header.box;
+        nx = header.nx;
+        ny = header.ny;
+        nz = header.nz;
+        fileNum = header.nodeNum;
 
     }
     
     /* Set the "true" boundary (without overlap) for the given fileNum */
     void PmssReader::setBoundary() {
+
         int i,j,k, ifile, ii;
         float qx, qy, qz;
+        float tolerance; // tolerance
+
 
         k = (fileNum-1)/(nx*ny)+1;
         j = (fileNum- (k-1)*nx*ny-1)/nx +1;
@@ -190,9 +120,9 @@ namespace Pmss {
         ifile= i +(j-1)*nx +(k-1)*nx*ny;  // must be equal to fileNum, otherwise problem!
 
         // corresponding left/right boundary:
-        qx = Box/nx;
-        qy = Box/ny;
-        qz = Box/nz;
+        qx = box/nx;
+        qy = box/ny;
+        qz = box/nz;
 
         xLeft = (i-1)*qx;
         xRight = i*qx;
@@ -203,8 +133,21 @@ namespace Pmss {
         
         printf("Boundary set to: x: %.2f - %.2f, y: %.2f - %.2f, z: %.2f - %.2f\n", 
             xLeft,xRight,yLeft,yRight,zLeft,zRight);
-    }
 
+        // cross check, if this seems OK:
+        tolerance = 0.001;
+        if ( fabs(xLeft-header.dBuffer  - header.xL) > tolerance
+            || fabs(xRight+header.dBuffer  - header.xR) > tolerance
+            || fabs(yLeft-header.dBuffer  - header.yL) > tolerance
+            || fabs(yRight+header.dBuffer  - header.yR) > tolerance
+            || fabs(zLeft-header.dBuffer  - header.zL) > tolerance
+            || fabs(zRight+header.dBuffer  - header.zR) > tolerance ) {
+
+            printf("Problem: Mismatch between boundaries!\n");
+            printf("One or more calculated boundary values vary more than dBuffer=%f [units] from boundary in file. Maybe check your header?\n", header.dBuffer);
+            fflush(stdout);
+        }
+    }
 
     void PmssReader::offsetFileStream() {
         int irow;
@@ -230,8 +173,9 @@ namespace Pmss {
         cout<<"offset currRow: "<<currRow<<endl;
     }
     
+    // read one line
     int PmssReader::getNextRow() {
-        // read one line
+        
         assert(fileStream.is_open());
         
         char memchunk[numBytesPerRow];
@@ -294,7 +238,7 @@ namespace Pmss {
                 return 0;
             }
 
-            // now parse the line and assign it to the proper variables using memcpy
+            // now parse the line and assign it to the proper variables
             assignFloat(&x, &memchunk[0], bswap);
             assignFloat(&y, &memchunk[sizeof(float)], bswap);
             assignFloat(&z, &memchunk[2*sizeof(float)], bswap);
@@ -316,7 +260,7 @@ namespace Pmss {
             // line was foúnd.
 
             // include "=="" on both sides, since we don't want to miss particles at box boundary
-            // rather have duplicates and correct for them later on that missing particles. 
+            // rather have duplicates and correct for them later on than have missing particles. 
 
             if (x >= xLeft && x <= xRight 
              && y >= yLeft && y <= yRight
@@ -328,7 +272,6 @@ namespace Pmss {
                 particleInside = 0;
             }
         }
-
 
 	    // stop after reading maxRows, but only if it is not -1
 	    // Note: Could this be accelerated? It's unnecessary most of the time,
@@ -345,6 +288,74 @@ namespace Pmss {
 	
         return 1;       
     }
+
+    
+    bool PmssReader::getItemInRow(DBDataSchema::DataObjDesc * thisItem, bool applyAsserters, bool applyConverters, void* result) {
+        
+        bool isNull;
+
+        isNull = false;
+
+        //reroute constant items:
+        if(thisItem->getIsConstItem() == true) {
+            getConstItem(thisItem, result);
+            isNull = false;
+        } else if (thisItem->getIsHeaderItem() == true) {
+            printf("We never told you to read headers...\n");
+            exit(EXIT_FAILURE);
+        } else {
+            isNull = getDataItem(thisItem, result);
+        }
+        
+        // assertions and conversions could be applied here
+
+        // return value: if True: just NULL is written, result is ignored.
+        //if False: the value in result is used.
+        return isNull;
+    }
+    
+    bool PmssReader::getDataItem(DBDataSchema::DataObjDesc * thisItem, void* result) {
+
+        //check if this is "Col1" etc. and if yes, assign corresponding value
+        //the variables are declared already in Pmss_Reader.h 
+        //and the values were read in getNextRow()
+        bool isNull;
+
+        isNull = false;
+        if(thisItem->getDataObjName().compare("Col1") == 0) {           
+            *(float*)(result) = x;
+        } else if (thisItem->getDataObjName().compare("Col2") == 0) {
+            *(float*)(result) = y;
+        } else if (thisItem->getDataObjName().compare("Col3") == 0) {
+            *(float*)(result) = z;
+        } else if (thisItem->getDataObjName().compare("Col4") == 0) {
+            *(float*)(result) = vx;
+        } else if (thisItem->getDataObjName().compare("Col5") == 0) {
+            *(float*)(result) = vy;
+        } else if (thisItem->getDataObjName().compare("Col6") == 0) {
+            *(float*)(result) = vz;
+        } else if (thisItem->getDataObjName().compare("Col7") == 0) {
+            particleId = (long int) ( (snapnum)*idfactor + id );
+            *(long*)(result) = id;
+        } else if (thisItem->getDataObjName().compare("Col8") == 0) {
+            phkey = 0;
+            *(int*)(result) = phkey;
+            // better: let DBIngestor insert Null at this column
+            // => need to return 1, so that Null will be written.
+            isNull = true;
+        } else {
+            printf("Something went wrong...\n");
+            exit(EXIT_FAILURE);
+        }
+
+        return isNull;
+
+    }
+
+    void PmssReader::getConstItem(DBDataSchema::DataObjDesc * thisItem, void* result) {
+        memcpy(result, thisItem->getConstData(), DBDataSchema::getByteLenOfDType(thisItem->getDataObjDType()));
+    }
+
 
     // write part from memoryblock to integer; byteswap, if necessary (TODO: use global 'swap' or locally submit?)
     int PmssReader::assignInt(int *n, char *memblock, int bswap) {
@@ -372,7 +383,6 @@ namespace Pmss {
         }
     }
 
-    
     // write part from memoryblock to long; byteswap, if necessary
     int PmssReader::assignLong(long *n, char *memblock, int bswap) {
         
@@ -432,76 +442,85 @@ namespace Pmss {
         }
     }
 
-    
-    bool PmssReader::getItemInRow(DBDataSchema::DataObjDesc * thisItem, bool applyAsserters, bool applyConverters, void* result) {
-        
-        bool isNull;
+    // swap each header item
+    pmssHeader PmssReader::swapPmssHeader(pmssHeader header, int swap) {
 
-        isNull = false;
+        if (swap) {
+            header.ilead1 = swapInt(header.ilead1,swap);
+            header.aexpn = swapFloat(header.aexpn, swap);
+            header.Omega0 = swapFloat(header.Omega0, swap);
+            header.OmegaL0 = swapFloat(header.OmegaL0, swap);
+            header.hubble = swapFloat(header.hubble, swap);
+            header.box = swapFloat(header.box, swap);
+            header.particleMass = swapFloat(header.particleMass, swap);
+            header.itrail1 = swapInt(header.itrail1,swap);
 
-        //reroute constant items:
-        if(thisItem->getIsConstItem() == true) {
-            getConstItem(thisItem, result);
-            isNull = false;
-        } else if (thisItem->getIsHeaderItem() == true) {
-            printf("We never told you to read headers...\n");
-            exit(EXIT_FAILURE);
-        } else {
-            isNull = getDataItem(thisItem, result);
-        }
-        
-        // following things are not necessary here:
+            header.ilead2 = swapInt(header.ilead2,swap);
+            header.nodeNum = swapInt(header.nodeNum,swap);
+            header.nx = swapInt(header.nx,swap);
+            header.ny = swapInt(header.ny,swap);
+            header.nz = swapInt(header.nz,swap);
+            header.dBuffer = swapFloat(header.dBuffer,swap);
+            header.nBuffer = swapInt(header.nBuffer,swap);
+            header.itrail2 = swapInt(header.itrail2,swap);
+            
+            header.ilead3 = swapInt(header.ilead3,swap);
+            header.xL = swapFloat(header.xL,swap);
+            header.xR = swapFloat(header.xR,swap);
+            header.yL = swapFloat(header.yL,swap);
+            header.yR = swapFloat(header.yR,swap);
+            header.zL = swapFloat(header.zL,swap);
+            header.zR = swapFloat(header.zR,swap);
+            header.itrail3 = swapInt(header.itrail3,swap);
 
-        //check assertions
-        //checkAssertions(thisItem, result);
-        
-        //apply conversion
-        //applyConversions(thisItem, result);
-
-        // return value: if True: just NULL is written, result is ignored.
-        //if False: the value in result is used.
-        return isNull;
-    }
-    
-    bool PmssReader::getDataItem(DBDataSchema::DataObjDesc * thisItem, void* result) {
-
-        //check if this is "Col1" etc. and if yes, assign corresponding value
-        //the variables are declared already in Pmss_Reader.h 
-        //and the values were read in getNextRow()
-        bool isNull;
-
-        isNull = false;
-        if(thisItem->getDataObjName().compare("Col1") == 0) {           
-            *(float*)(result) = x;
-        } else if (thisItem->getDataObjName().compare("Col2") == 0) {
-            *(float*)(result) = y;
-        } else if (thisItem->getDataObjName().compare("Col3") == 0) {
-            *(float*)(result) = z;
-        } else if (thisItem->getDataObjName().compare("Col4") == 0) {
-            *(float*)(result) = vx;
-        } else if (thisItem->getDataObjName().compare("Col5") == 0) {
-            *(float*)(result) = vy;
-        } else if (thisItem->getDataObjName().compare("Col6") == 0) {
-            *(float*)(result) = vz;
-        } else if (thisItem->getDataObjName().compare("Col7") == 0) {
-            particleId = (long int) ( (snapnum)*idfactor + id );
-            *(long*)(result) = id;
-        } else if (thisItem->getDataObjName().compare("Col8") == 0) {
-            phkey = 0;
-            *(int*)(result) = phkey;
-            // better: let DBIngestor insert Null at this column
-            // => need to return 1, so that Null will be written.
-            isNull = true;
-        } else {
-            printf("Something went wrong...\n");
-            exit(EXIT_FAILURE);
+            header.ilead4 = swapInt(header.ilead4,swap);
+            header.np = swapInt(header.np,swap);
+            header.itrail4 = swapInt(header.itrail4,swap);
         }
 
-        return isNull;
-
+        return header;
     }
 
-    void PmssReader::getConstItem(DBDataSchema::DataObjDesc * thisItem, void* result) {
-        memcpy(result, thisItem->getConstData(), DBDataSchema::getByteLenOfDType(thisItem->getDataObjDType()));
+    int PmssReader::swapInt(int i, int bswap) {
+        unsigned char *cptr,tmp;
+        
+        if ( (int)sizeof(int) != 4 ) {
+            fprintf( stderr,"Swap int: sizeof(int)=%d and not 4\n", (int)sizeof(int) );
+            exit(0);
+        }
+        
+        if (bswap) {
+            cptr = (unsigned char *) &i;
+            tmp     = cptr[0];
+            cptr[0] = cptr[3];
+            cptr[3] = tmp;
+            tmp     = cptr[1];
+            cptr[1] = cptr[2];
+            cptr[2] = tmp;
+        }
+
+        return i;
     }
+
+    float PmssReader::swapFloat(float f, int bswap) {
+        unsigned char *cptr,tmp;
+        
+        if (sizeof(float) != 4) {
+        fprintf(stderr,"Swap float: sizeof(float)=%d and not 4\n",(int)sizeof(float));
+        exit(0);
+        }
+         
+        if (bswap) {
+            cptr = (unsigned char *)&f;
+            tmp     = cptr[0];
+            cptr[0] = cptr[3];
+            cptr[3] = tmp;
+            tmp     = cptr[1];
+            cptr[1] = cptr[2];
+            cptr[2] = tmp;
+        }
+
+        return f;
+    }
+
 }
