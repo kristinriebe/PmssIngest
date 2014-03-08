@@ -75,6 +75,10 @@ vx,vy,vz: velocity components of the particle, in file units (probably km/s)
 phkey: Peano-Hilbert key for the grid cell in which the particle is located, 
 		is just filled with NULLs, values can be updated via the database server using e.g.
 		libhilbert (https://github.com/adrpar/libhilbert)
+The data are mapped to following data types on the database: 
+position and velocity: 4 byte floats
+particleId: 8 byte integer
+phkey: 4 byte integer
 
 * Only particles from the main region are uploaded (not from overlapping boundary) 
 to minimize duplicates and upload time
@@ -89,7 +93,11 @@ see INSTALL
 
 Example
 --------
-PmssIngest/build/PmssIngest.x -s mssql -D TestDB -T Particles -U myusername -P mypassword -O 3306 -R 1 -d PMss/PMss.snap_088.0001.DAT
+An example data file and create-table statement are given in the 
+Example directory.
+Data can be ingested with a command line like this:
+
+PmssIngest/build/PmssIngest.x -s mssql -D TestDB -T Particles -U myusername -P mypassword -O 3306 -R 1 -d PMss.001_example.DAT
 
 Replace myusername and mypassword with your own credentials. 
 -s: type of database (e.g. mysql, unix_sqlsrv_odbc)
@@ -99,9 +107,21 @@ Replace myusername and mypassword with your own credentials.
 -R 1: try to resume, if connection fails
 -d: data file 
 
+The database table could have been created like this 
+(see also Example/dbtable-mysql.sql):
 
-The database table could have been created like this:
+mysql> create table Particles (
+    particleId  bigint not null,
+    x  float not null,
+    y  float not null,
+    z  float not null,
+    vx  float not null,
+    vy  float not null,
+    vz  float not null,
+    phkey int
+) ENGINE=MyISAM;
 
+An example data file is also given in the Example directory.
 
 
 
