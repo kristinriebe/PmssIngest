@@ -7,5 +7,6 @@ create table Particles (
     vx  float not null,
     vy  float not null,
     vz  float not null,
-    phkey int
+    phkey int,
+    fileRowId bigint not null
 ) ENGINE=MyISAM;

@@ -1,6 +1,6 @@
 /*  
  *  Copyright (c) 2012, Adrian M. Partl <apartl@aip.de>, 
- *			Kristin Riebe <kriebe@aip.de>,
+ *                      Kristin Riebe <kriebe@aip.de>,
  *                      eScience team AIP Potsdam
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -32,8 +32,8 @@ namespace Pmss {
         //currRow = -1;
     }
     
-    PmssReader::PmssReader(std::string newFileName, int newSwap, int newSnapnum, float newIdfactor, int newNrecord, int newStartRow, int newMaxRows) {          
-        // this->box = box;     
+    PmssReader::PmssReader(std::string newFileName, int newSwap, int newSnapnum, double newIdfactor, int newNrecord, int newStartRow, int newMaxRows) {          
+             // this->box = box;     
         bswap = newSwap;
         snapnum = newSnapnum;
         idfactor = newIdfactor;
@@ -51,7 +51,7 @@ namespace Pmss {
         readPmssHeader();
         setBoundary();
         //offsetFileStream();
-        //exit(0);
+        //exit(0);  // only enable, if checking header etc.
     }
     
     
@@ -108,7 +108,8 @@ namespace Pmss {
     /* Set the "true" boundary (without overlap) for the given fileNum */
     void PmssReader::setBoundary() {
 
-        int i,j,k, ifile, ii;
+        int i,j,k;
+        //int ifile;
         float qx, qy, qz;
         float tolerance; // tolerance
 
@@ -117,7 +118,11 @@ namespace Pmss {
         j = (fileNum- (k-1)*nx*ny-1)/nx +1;
         i = fileNum- (k-1)*nx*ny-(j-1)*nx; 
 
-        ifile= i +(j-1)*nx +(k-1)*nx*ny;  // must be equal to fileNum, otherwise problem!
+        /*ifile= i +(j-1)*nx +(k-1)*nx*ny;  // must be equal to fileNum, otherwise problem!
+        if (ifile != fileNum) {
+            printf("Problem: ifile and fileNum do not match!\n");
+            exit(0);
+        }*/
 
         // corresponding left/right boundary:
         qx = box/nx;
@@ -149,8 +154,9 @@ namespace Pmss {
         }
     }
 
+    /* Offset to the desired row and start ingesting from there on.
+     * NOT FULLY IMPLEMENTED YET (just use for testing) */
     void PmssReader::offsetFileStream() {
-        int irow;
         streamoff ipos;
         int iblock;
         
@@ -158,10 +164,12 @@ namespace Pmss {
 
         // position pointer at beginning of the row where ingestion should start
         numBytesPerRow = 6*sizeof(float)+1*sizeof(long);
-        //ipos = (streamoff) ( (long) startRow * (long) numBytesPerRow );
-        
-        // skip 264 data blocks after header:
+       
+        // skip 264 data blocks after header, assuming that nrecord is the same for all blocks:
+        // TODO: Would need to jump from block to block, always reading nrecord beforehand
+        // so variable lengths for data blocks can be supported.
         iblock = 264;
+        nrecord = 500000;
         ipos = (streamoff) (   iblock * ( (long) nrecord * (long) numBytesPerRow + 5*sizeof(int) )  );
 
         fileStream.seekg(ipos, ios::cur);
@@ -169,7 +177,7 @@ namespace Pmss {
         // update currow
         startRow = iblock*nrecord;
         currRow = startRow;
- 
+
         cout<<"offset currRow: "<<currRow<<endl;
     }
     
@@ -179,7 +187,7 @@ namespace Pmss {
         assert(fileStream.is_open());
         
         char memchunk[numBytesPerRow];
-        int skipsize; 
+        int skipsize, iskip; 
         int datasize;
         int particleInside;
         
@@ -204,21 +212,42 @@ namespace Pmss {
                 printf("Skipping nrecord-header for next data block.\n");
 
                 // skip+read block with "nrecord"
+                // -- skip (4)
                 if (!fileStream.read(memchunk,skipsize)) {
                     printf("End of file reached.\n");
-                    return 0;
+                    return false;
                 }
 
+                // -- nrecord
                 fileStream.read(memchunk,datasize); // nrecord
                 assignInt(&nrecord, &memchunk[0], bswap);
-
                 printf("nrecord: %d\n", nrecord);
+                if (nrecord <= 0) {
+                    printf("Problem: nrecord is %d and not > 0\n", nrecord);
+                    return false;
+                }
 
+                // -- skip (4)
                 fileStream.read(memchunk,skipsize);
+                assignInt(&iskip, &memchunk[0], bswap);
+                // check if this integer is 4. If not, something went wrong
+                // and it would be better to just stop here.
+                if (iskip != 4) {
+                    printf("Error: trailing integer after nrecord is not 4, but %d. Exit.\n",
+                        iskip);
+                    return false;
+                }
 
                 // also need to skip integer that starts 
                 // the next data block 
                 fileStream.read(memchunk,skipsize);
+                assignInt(&iskip, &memchunk[0], bswap);
+                // include one more check here:
+                if (iskip != (nrecord*numBytesPerRow)) {
+                    printf("Error: block size (%d) does not agree with nrecord*numBytesPerRow (%d). Exit.\n",
+                        iskip, nrecord*numBytesPerRow);
+                    return false;
+                }
 
                 // reset countInBlock:
                 countInBlock = 0;
@@ -235,7 +264,7 @@ namespace Pmss {
             // at once, then always use the next value in array
             // or, if at end of array, read the next data block.
             if (!fileStream.read(memchunk,numBytesPerRow)) {
-                return 0;
+                return false;
             }
 
             // now parse the line and assign it to the proper variables
@@ -247,8 +276,17 @@ namespace Pmss {
             assignFloat(&vz, &memchunk[5*sizeof(float)], bswap);
             assignLong(&id, &memchunk[6*sizeof(float)], bswap);
             
+
+            // Create another id from number of file and row.
+            // This helps to check ingestions and remove particles from the
+            // database that were ingested from the same file, if something
+            // went wrong during ingestion process (e.g. connection was lost).
+            // 
+            fileRowId = (long int) (fileNum * idfactor + currRow);
+
             if (counter % 100000 == 0) 
-                printf("counter, x,y,z, vx,vy,vz: %d %f %f %f, %f %f %f\n", counter, x,y,z, vx,vy,vz);
+                printf("   check: counter, fileRowId, id, x,y,z, vx,vy,vz: %d, %ld %ld, %f %f %f, %f %f %f\n", 
+                    counter, fileRowId, id, x,y,z, vx,vy,vz);
 
             currRow++;
             counter++;
@@ -262,9 +300,9 @@ namespace Pmss {
             // include "=="" on both sides, since we don't want to miss particles at box boundary
             // rather have duplicates and correct for them later on than have missing particles. 
 
-            if (x >= xLeft && x <= xRight 
-             && y >= yLeft && y <= yRight
-             && z >= zLeft && z <= zRight) {
+            if (x >= xLeft && x < xRight 
+             && y >= yLeft && y < yRight
+             && z >= zLeft && z < zRight) {
                 // fine
                 particleInside = 1;
             } else {
@@ -281,12 +319,12 @@ namespace Pmss {
         if (maxRows != -1) {
             if (counter > maxRows) {
                 printf("Maximum number of rows to be ingested is reached (%d).\n", maxRows);
-                return 0;
+                return false;
 	       }
 
 	    }
 	
-        return 1;       
+        return true;       
     }
 
     
@@ -308,9 +346,10 @@ namespace Pmss {
         }
         
         // assertions and conversions could be applied here
+        // but do not need them now.
 
-        // return value: if True: just NULL is written, result is ignored.
-        //if False: the value in result is used.
+        // return value: if true: just NULL is written, result is ignored.
+        // if false: the value in result is used.
         return isNull;
     }
     
@@ -320,6 +359,9 @@ namespace Pmss {
         //the variables are declared already in Pmss_Reader.h 
         //and the values were read in getNextRow()
         bool isNull;
+
+        //printf("   counter: fileRowId, id, x,y,z, vx,vy,vz: %d: %ld %ld %f %f %f, %f %f %f\n", 
+        //            counter, fileRowId, id, x,y,z, vx,vy,vz);
 
         isNull = false;
         if(thisItem->getDataObjName().compare("Col1") == 0) {           
@@ -335,7 +377,7 @@ namespace Pmss {
         } else if (thisItem->getDataObjName().compare("Col6") == 0) {
             *(float*)(result) = vz;
         } else if (thisItem->getDataObjName().compare("Col7") == 0) {
-            particleId = (long int) ( (snapnum)*idfactor + id );
+            //particleId = (long int) ( (snapnum)*idfactor + id );
             *(long*)(result) = id;
         } else if (thisItem->getDataObjName().compare("Col8") == 0) {
             phkey = 0;
@@ -343,6 +385,8 @@ namespace Pmss {
             // better: let DBIngestor insert Null at this column
             // => need to return 1, so that Null will be written.
             isNull = true;
+        } else if (thisItem->getDataObjName().compare("Col9") == 0) {
+            *(long*)(result) = fileRowId;
         } else {
             printf("Something went wrong...\n");
             exit(EXIT_FAILURE);
@@ -381,6 +425,8 @@ namespace Pmss {
             cptr[1] = cptr[2];
             cptr[2] = tmp;
         }
+
+        return 1;
     }
 
     // write part from memoryblock to long; byteswap, if necessary
@@ -414,6 +460,7 @@ namespace Pmss {
             cptr[4] = tmp;
         }
 
+        return 1;
     }
 
     // write part from memoryblock to float; byteswap, if necessary
@@ -440,6 +487,7 @@ namespace Pmss {
             cptr[1] = cptr[2];
             cptr[2] = tmp;
         }
+        return 1;
     }
 
     // swap each header item

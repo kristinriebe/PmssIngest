@@ -188,6 +188,25 @@ namespace Pmss {
         
         //add schema item to the schema
         returnSchema->addItemToSchema(schemaItem8);
+
+
+        //this is the 9. column
+        DataObjDesc * col9Obj = new DataObjDesc();
+        col9Obj->setDataObjName("Col9");
+        col9Obj->setDataObjDType(DT_INT8);
+        col9Obj->setIsConstItem(false, false);
+        col9Obj->setIsHeaderItem(false);
+        
+        //then describe the SchemaItem which represents the data on the server side
+        SchemaItem * schemaItem9 = new SchemaItem();
+        schemaItem9->setColumnName("fileRowId");
+        schemaItem9->setColumnDBType(DBT_BIGINT);
+        schemaItem9->setDataDesc(col9Obj);
+        
+        //add schema item to the schema
+        returnSchema->addItemToSchema(schemaItem9);
+
+
         return returnSchema;
     }
 }

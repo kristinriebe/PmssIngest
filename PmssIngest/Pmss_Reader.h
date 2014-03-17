@@ -104,9 +104,10 @@ namespace Pmss {
         float vy;
         float vz;
         long  id;
+        long fileRowId;
         
         //fields to be generated/converted/...
-        float idfactor;
+        double idfactor;
         int snapnum;
         long int particleId;
         int phkey;
@@ -125,7 +126,7 @@ namespace Pmss {
 
     public:
         PmssReader();
-        PmssReader(std::string newFileName, int swap, int snapnum, float idfactor, int nrecord, int startRow, int maxRows);          
+        PmssReader(std::string newFileName, int swap, int snapnum, double idfactor, int nrecord, int startRow, int maxRows);          
         ~PmssReader();
 
         void openFile(std::string newFileName);
