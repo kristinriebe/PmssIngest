@@ -12,6 +12,7 @@ cd build
 cmake -DDBINGESTOR_LIBRARY_PATH:PATH=/usr/local/DBIngestor/lib -DDBINGESTOR_INCLUDE_PATH:PATH=/usr/local/DBIngestor/include ..
 make
 
+Alternatively, you can adjust the paths also directly in CMakeLists.txt.
 
 Then you can call "PmssIngest" with command line parameters as given in the code.
 See the README for an example.

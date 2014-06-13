@@ -1,5 +1,5 @@
-PMssIngestor
-===============
+PMssIngest
+===========
 
 This code uses the DBIngestor library (https://github.com/adrpar/DBIngestor) to ingest 
 particle data from PMss files into a database.
@@ -20,10 +20,11 @@ The PMss files were created from multiple Gadget files
 by Anatoly Klypin. I haven't checked yet if there are other 
 types of PMss files with different formats.
 
-The files were written with Fortran, option "unformatted", 
-so each record is wrapped by a leading and trailing (4 byte) integer.
+The files were written with Fortran, option "unformatted" (thus binary) 
+and with the default sequential access, so each record is wrapped by a 
+leading and a trailing (4 byte) integer (I call them 'skipint' here).
 
-Each file The data files are structured as follows:
+Each file is structured as follows:
 
 * header:
 skipint
