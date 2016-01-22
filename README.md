@@ -28,29 +28,30 @@ Each file is structured as follows:
 
 * **header:**  
 
-skipint  
-6 floats: aexpn, Om0, Oml0, hubble, Box, MassOne  
-skipint  
-skipint  
-4 ints, 1 float, 1 int: i_node,Nx,Ny,Nz,dBuffer,nBuffer  
-skipint  
-skipint  
-6 floats: xL,xR,yL,yR,zL,zR  
-skipint  
-skipint  
-1 int: Np  
-skipint  
+    skipint  
+    6 floats: aexpn, Om0, Oml0, hubble, Box, MassOne  
+    skipint  
+    skipint  
+    4 ints, 1 float, 1 int: i_node,Nx,Ny,Nz,dBuffer,nBuffer  
+    skipint  
+    skipint  
+    6 floats: xL,xR,yL,yR,zL,zR  
+    skipint  
+    skipint  
+    1 int: Np  
+    skipint  
 
 * **data blocks:**  
-There are blocks of "nrecord" size, each block is preceded by 
-`nrecord` and integers around it, i.e.:  
 
-skipint  
-nrecord  
-skipint  
-skipint  
-datablock: nrecord rows with: 6 floats: x,y,z,vx,vy,vz; 1 long: id  
-skipint  
+    There are blocks of "nrecord" size, each block is preceded by 
+    `nrecord` and integers around it, i.e.:  
+
+    skipint  
+    nrecord  
+    skipint  
+    skipint  
+    datablock: nrecord rows with: 6 floats: x,y,z,vx,vy,vz; 1 long: id  
+    skipint  
 
 The skipint-integers define the size of the next/previous record.
 
